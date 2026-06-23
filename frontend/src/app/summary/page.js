@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CategoryChart from "@/components/CategoryChart";
-import { getSummary, ApiError } from "@/api/client";
-import { SEED_USERS } from "@/lib/constants";
+import { getSummary, getUsers, ApiError } from "@/api/client";
+import { DEFAULT_USERS } from "@/lib/constants";
 import { formatCurrency, formatNumber } from "@/lib/format";
 
 /**
@@ -12,10 +12,75 @@ import { formatCurrency, formatNumber } from "@/lib/format";
  * - Renders headline aggregates + a CSS bar chart of the category breakdown.
  */
 export default function SummaryPage() {
-  const [userId, setUserId] = useState(SEED_USERS[0].user_id);
+  const [users, setUsers] = useState(DEFAULT_USERS);
+  const [selectedUser, setSelectedUser] = useState(DEFAULT_USERS[0] || null);
+  const [userQuery, setUserQuery] = useState(
+    DEFAULT_USERS[0] ? `${DEFAULT_USERS[0].username} (${DEFAULT_USERS[0].user_id})` : ""
+  );
+  const [isUserPickerOpen, setIsUserPickerOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUsers() {
+      try {
+        const res = await getUsers({ search: "", limit: 50 });
+        const items = res?.users?.length ? res.users : DEFAULT_USERS;
+        if (cancelled) return;
+        setUsers(items);
+        setSelectedUser((current) => current || items[0] || null);
+        setUserQuery((current) => {
+          if (current) return current;
+          return items[0] ? `${items[0].username} (${items[0].user_id})` : "";
+        });
+      } catch {
+        if (!cancelled) {
+          setUsers(DEFAULT_USERS);
+        }
+      }
+    }
+
+    loadUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUsers(search = "") {
+      try {
+        const res = await getUsers({ search, limit: 10 });
+        const items = res?.users?.length ? res.users : DEFAULT_USERS;
+        if (cancelled) return;
+        setUsers(items);
+      } catch {
+        if (!cancelled) {
+          setUsers(DEFAULT_USERS);
+        }
+      }
+    }
+
+    const debounce = setTimeout(() => {
+      loadUsers(userQuery.trim());
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+  }, [userQuery]);
+
+  function chooseUser(user) {
+    setSelectedUser(user);
+    setUserQuery(`${user.username} (${user.user_id})`);
+    setIsUserPickerOpen(false);
+  }
 
   async function load(id) {
     setLoading(true);
@@ -35,7 +100,7 @@ export default function SummaryPage() {
 
   function onSubmit(e) {
     e.preventDefault();
-    if (userId) load(userId);
+    if (selectedUser?.user_id) load(selectedUser.user_id);
   }
 
   return (
@@ -43,24 +108,49 @@ export default function SummaryPage() {
       <h1>User Summary</h1>
 
       <form onSubmit={onSubmit} className="card">
-        <label>Select a user, or paste a UUID</label>
-        <div className="row">
-          <select value={userId} onChange={(e) => setUserId(e.target.value)} style={{ maxWidth: 280 }}>
-            {SEED_USERS.map((u) => (
-              <option key={u.user_id} value={u.user_id}>
-                {u.username} — {u.user_id}
-              </option>
-            ))}
-          </select>
-          <input
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            placeholder="550e8400-..."
-            style={{ flex: 1 }}
-          />
-          <button type="submit" disabled={loading || !userId}>
+        <label>Search a user and select from the results</label>
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <div className="search-picker" style={{ flex: 1 }}>
+            <input
+              value={userQuery}
+              onFocus={() => setIsUserPickerOpen(true)}
+              onChange={(e) => {
+                setUserQuery(e.target.value);
+                setIsUserPickerOpen(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setIsUserPickerOpen(false), 150);
+              }}
+              placeholder="Search users by name or UUID"
+              aria-label="Search users"
+            />
+            {isUserPickerOpen ? (
+              <div className="search-picker-results" role="listbox" aria-label="User search results">
+                {users.length ? (
+                  users.map((u) => (
+                    <button
+                      key={u.user_id}
+                      type="button"
+                      className="search-picker-option"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => chooseUser(u)}
+                    >
+                      <strong>{u.username}</strong>
+                      <span>{u.user_id}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="search-picker-empty">No matching users.</div>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <button type="submit" disabled={loading || !selectedUser?.user_id}>
             {loading ? "Loading…" : "View Summary"}
           </button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          Selected: {selectedUser ? `${selectedUser.username} — ${selectedUser.user_id}` : "None"}
         </div>
       </form>
 

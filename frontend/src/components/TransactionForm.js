@@ -1,21 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ALLOWED_CATEGORIES,
+  DEFAULT_USERS,
   MAX_AMOUNT,
-  SEED_USERS,
 } from "@/lib/constants";
-import { createTransaction, ApiError } from "@/api/client";
+import { createTransaction, getUsers, ApiError } from "@/api/client";
 import {
   formatCurrency,
   generateIdempotencyKey,
   parseAmount,
 } from "@/lib/format";
 
+const initialUserId = DEFAULT_USERS[0]?.user_id || "";
+
 const EMPTY = {
   idempotency_key: generateIdempotencyKey(),
-  user_id: SEED_USERS[0].user_id,
+  user_id: initialUserId,
   type: "credit",
   amount: "",
   category: "salary",
@@ -33,13 +35,59 @@ const EMPTY = {
  */
 export default function TransactionForm() {
   const [form, setForm] = useState(EMPTY);
+  const [users, setUsers] = useState(DEFAULT_USERS);
+  const [selectedUser, setSelectedUser] = useState(DEFAULT_USERS[0] || null);
+  const [userQuery, setUserQuery] = useState("");
+  const [isUserPickerOpen, setIsUserPickerOpen] = useState(false);
+  const [usersStatus, setUsersStatus] = useState("loading");
   const [status, setStatus] = useState("idle"); // idle | submitting | done
   const [result, setResult] = useState(null); // {kind:'success'|'duplicate'|'error', ...}
 
   const errors = useMemo(() => validate(form), [form]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUsers(search = "") {
+      try {
+        const res = await getUsers({ search, limit: 10 });
+        const items = res?.users?.length ? res.users : DEFAULT_USERS;
+        if (cancelled) return;
+        setUsers(items);
+        if (!search && !selectedUser && items[0]) {
+          setSelectedUser(items[0]);
+          setForm((current) => ({ ...current, user_id: items[0].user_id }));
+        }
+      } catch {
+        if (!cancelled) {
+          setUsers(DEFAULT_USERS);
+        }
+      } finally {
+        if (!cancelled) {
+          setUsersStatus("ready");
+        }
+      }
+    }
+
+    const debounce = setTimeout(() => {
+      loadUsers(userQuery.trim());
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+  }, [userQuery, selectedUser]);
+
   function setField(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function chooseUser(user) {
+    setField("user_id", user.user_id);
+    setSelectedUser(user);
+    setUserQuery(`${user.username} (${user.user_id})`);
+    setIsUserPickerOpen(false);
   }
 
   function regenerateKey() {
@@ -101,16 +149,46 @@ export default function TransactionForm() {
 
         <div>
           <label>User</label>
-          <select
-            value={form.user_id}
-            onChange={(e) => setField("user_id", e.target.value)}
-          >
-            {SEED_USERS.map((u) => (
-              <option key={u.user_id} value={u.user_id}>
-                {u.username}
-              </option>
-            ))}
-          </select>
+          <div className="search-picker">
+            <input
+              value={userQuery}
+              onFocus={() => setIsUserPickerOpen(true)}
+              onChange={(e) => {
+                setUserQuery(e.target.value);
+                setIsUserPickerOpen(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setIsUserPickerOpen(false), 150);
+              }}
+              placeholder="Search users by name or UUID"
+              aria-label="Search users"
+            />
+            {isUserPickerOpen ? (
+              <div className="search-picker-results" role="listbox" aria-label="User search results">
+                {usersStatus === "loading" ? (
+                  <div className="search-picker-empty">Loading users…</div>
+                ) : users.length ? (
+                  users.map((u) => (
+                    <button
+                      key={u.user_id}
+                      type="button"
+                      className="search-picker-option"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => chooseUser(u)}
+                    >
+                      <strong>{u.username}</strong>
+                      <span>{u.user_id}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="search-picker-empty">No matching users.</div>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            Selected: {selectedUser ? `${selectedUser.username} — ${selectedUser.user_id}` : form.user_id || "None"}
+          </div>
         </div>
 
         <div>

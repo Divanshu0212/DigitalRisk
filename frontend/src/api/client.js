@@ -79,6 +79,12 @@ export async function createTransaction(payload) {
   });
 }
 
+/** GET /users?search=&limit= */
+export async function getUsers({ search = "", limit = 50 } = {}) {
+  const qs = new URLSearchParams({ search, limit: String(limit) });
+  return request(`/users?${qs.toString()}`);
+}
+
 /** GET /summary/{user_id} (§4.2) */
 export async function getSummary(userId) {
   return request(`/summary/${encodeURIComponent(userId)}`);

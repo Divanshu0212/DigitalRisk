@@ -1,32 +1,32 @@
 """Seed ~100 users + ~1000 diverse transactions (REQUIREMENTS §12.2, expanded).
 
-Run with:  python -m scripts.seed     (from the backend/ directory)
-   or:     python scripts/seed.py
+Two ways to run:
+  1. Automatically on app startup — the lifespan in ``main.py`` calls
+     ``run_seed()`` after migration if the DB is empty. No subprocess needed.
+  2. Manually: ``python scripts/seed.py`` (uses its own DB connection).
 
 The first five users are the canonical seed identities from the spec
 (alice…eve). The remaining ~95 are generated with realistic-looking
 usernames so the leaderboard, summary views and the searchable selector
 have meaningful data to show.
-
-Idempotent: idempotency_keys are derived from a per-row index, so re-runs
-hit the duplicate path and change nothing. Aggregates are recomputed from
-scratch at the end so user_stats is correct regardless of prior state.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import logging
 import os
 import random
 import sys
+import uuid as _uuid
 from pathlib import Path
 
-# Allow running both as a module and as a script.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import asyncpg
 
-import asyncpg  # noqa: E402
+from app.config import get_settings
+from app.models import ALLOWED_CATEGORIES
 
-from app.config import get_settings  # noqa: E402
-from app.models import ALLOWED_CATEGORIES  # noqa: E402
+logger = logging.getLogger("seed")
 
 # ---------------------------------------------------------------------------
 # Canonical spec users (aaa.. bbb.. etc.) — keep their documented IDs.
@@ -61,22 +61,16 @@ LAST = [
 def _gen_username(idx: int, rng: random.Random) -> str:
     f = rng.choice(FIRST)
     l = rng.choice(LAST)
-    # Mix formats so search behaves interestingly (prefix + substring).
     fmt = idx % 3
     if fmt == 0:
-        return f"{f}.{l}"          # alex.chen
+        return f"{f}.{l}"
     if fmt == 1:
-        return f"{f}_{l}{idx:02d}"  # sam_patel12
-    return f"{l}{f}{idx}"           # chenalex23
+        return f"{f}_{l}{idx:02d}"
+    return f"{l}{f}{idx}"
 
 
-# ---------------------------------------------------------------------------
-# Per-user transaction profile (credits/debits/category diversity).
-# Spread is deliberately wide so the composite-score ranking is meaningful.
-# ---------------------------------------------------------------------------
 def _profile_for(rank: int, total: int, rng: random.Random) -> dict:
     """rank=0 is the most active user, rank=total-1 the least."""
-    # Activity decays from top to bottom with jitter.
     base = 1.0 - (rank / max(total, 1))
     credits = max(2, int(rng.uniform(15, 40) * base))
     debits = max(0, int(rng.uniform(3, 15) * base))
@@ -86,10 +80,9 @@ def _profile_for(rank: int, total: int, rng: random.Random) -> dict:
 
 async def _ensure_users(conn: asyncpg.Connection) -> list[tuple[str, str]]:
     """Insert the canonical + generated users; return (username, user_id)."""
-    rng = random.Random(42)  # deterministic usernames
+    rng = random.Random(42)
     rows: list[tuple[str, str]] = list(CANONICAL_USERS)
 
-    # Generate usernames until we have EXTRA_USER_COUNT unique ones.
     seen = {u for u, _ in rows}
     generated: list[tuple[str, str]] = []
     idx = 0
@@ -99,11 +92,6 @@ async def _ensure_users(conn: asyncpg.Connection) -> list[tuple[str, str]]:
         if name in seen:
             continue
         seen.add(name)
-        # Deterministic, valid UUID (v4-ish) derived from the username so
-        # re-runs produce identical IDs -> idempotent inserts.
-        import hashlib
-        import uuid as _uuid
-
         digest = hashlib.md5(f"txnrank:{name}".encode()).digest()
         uid = str(_uuid.UUID(bytes=digest[:16], version=4))
         generated.append((name, uid))
@@ -117,7 +105,7 @@ async def _ensure_users(conn: asyncpg.Connection) -> list[tuple[str, str]]:
 
 
 async def _bulk_insert(conn: asyncpg.Connection, users: list[tuple[str, str]]) -> int:
-    rng = random.Random(7)  # deterministic transactions
+    rng = random.Random(7)
     txn_rows: list[tuple] = []
     idx = 0
     total = len(users)
@@ -128,8 +116,7 @@ async def _bulk_insert(conn: asyncpg.Connection, users: list[tuple[str, str]]) -
             idx += 1
             txn_rows.append((
                 f"seed-txn-{idx:05d}",
-                uid,
-                "credit",
+                uid, "credit",
                 round(rng.uniform(80, 4500), 2),
                 rng.choice(cats),
                 "seed credit",
@@ -138,8 +125,7 @@ async def _bulk_insert(conn: asyncpg.Connection, users: list[tuple[str, str]]) -
             idx += 1
             txn_rows.append((
                 f"seed-txn-{idx:05d}",
-                uid,
-                "debit",
+                uid, "debit",
                 round(rng.uniform(15, 900), 2),
                 rng.choice(cats),
                 "seed debit",
@@ -157,11 +143,7 @@ async def _bulk_insert(conn: asyncpg.Connection, users: list[tuple[str, str]]) -
 
 
 async def _recompute_stats(conn: asyncpg.Connection) -> None:
-    """Rebuild user_stats from the transactions table.
-
-    Doing this once at the end (rather than per-insert) keeps the seed fast
-    and makes it a useful repair tool if user_stats ever drifts.
-    """
+    """Rebuild user_stats from the transactions table."""
     await conn.execute(
         """
         INSERT INTO user_stats (
@@ -192,32 +174,31 @@ async def _recompute_stats(conn: asyncpg.Connection) -> None:
     )
 
 
-async def _is_seeded(conn: asyncpg.Connection) -> bool:
-    """Return True if the DB already has seed data (transactions exist)."""
-    count = await conn.fetchval("SELECT COUNT(*) FROM transactions")
-    return (count or 0) > 0
+async def run_seed(conn: asyncpg.Connection | None = None) -> None:
+    """Core seed logic. Accepts an external connection (pooled) or opens its own.
 
+    This is the function called by ``main.py`` lifespan after migration.
+    """
+    own_conn = False
+    if conn is None:
+        # Standalone invocation — open our own connection.
+        settings = get_settings()
+        url = os.getenv("DATABASE_URL", settings.database_url)
+        conn = await asyncpg.connect(dsn=url)
+        own_conn = True
 
-async def main() -> None:
-    settings = get_settings()
-    url = os.getenv("DATABASE_URL", settings.database_url)
-    safe_url = url.replace("password", "***") if "password" in url else url
-    print(f"Connecting to {safe_url.split('@')[-1]}")
-    conn = await asyncpg.connect(dsn=url)
     try:
-        if await _is_seeded(conn):
-            existing = await conn.fetchval("SELECT COUNT(*) FROM transactions")
-            print(f"Database already has {existing} transactions — skipping seed.")
-            return
-
         users = await _ensure_users(conn)
-        print(f"Ensured {len(users)} users ({len(CANONICAL_USERS)} canonical + {EXTRA_USER_COUNT} generated)")
+        logger.info(
+            "Ensured %d users (%d canonical + %d generated)",
+            len(users), len(CANONICAL_USERS), EXTRA_USER_COUNT,
+        )
 
         n = await _bulk_insert(conn, users)
-        print(f"Inserted {n} seed transactions")
+        logger.info("Inserted %d seed transactions", n)
 
         await _recompute_stats(conn)
-        print("Recomputed user_stats aggregates")
+        logger.info("Recomputed user_stats aggregates")
 
         rows = await conn.fetch(
             """
@@ -227,12 +208,21 @@ async def main() -> None:
             LIMIT 10
             """
         )
-        print("\nTop 10 by net balance:")
+        logger.info("Top 10 by net balance:")
         for r in rows:
-            print(f"  {r['username']:<16} balance={r['net_balance']:>11}  "
-                  f"txns={r['transaction_count']:>4}  cats={r['unique_categories']}")
+            logger.info(
+                "  %-16s balance=%11s  txns=%4d  cats=%d",
+                r["username"], float(r["net_balance"]),
+                r["transaction_count"], r["unique_categories"],
+            )
     finally:
-        await conn.close()
+        if own_conn:
+            await conn.close()
+
+
+async def main() -> None:
+    """CLI entry point: ``python scripts/seed.py``."""
+    await run_seed()
 
 
 if __name__ == "__main__":
