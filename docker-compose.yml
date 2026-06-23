@@ -1,0 +1,56 @@
+# Local dev: PostgreSQL + FastAPI backend + Next.js frontend.
+# `docker compose up` brings the whole stack up.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: txndb
+    # Host port 5434 avoids clashing with other local Postgres instances on
+    # 5432/5433. Internally the backend still connects to `db:5432` over
+    # the compose network — only the host-side port changes.
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready returns 0 only when the server accepts connections.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d txndb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Service-name DNS resolves to the db container inside the network.
+      DATABASE_URL: postgresql://postgres:password@db:5432/txndb
+      ALLOWED_ORIGINS: "*"
+      RATE_LIMIT_PER_MINUTE: "20"
+      BALANCE_FLOOR: "-50000"
+      MAX_TRANSACTION_AMOUNT: "1000000"
+      RANKING_CACHE_TTL: "15"
+      AUTO_MIGRATE: "1"
+    ports:
+      - "8000:8000"
+    # Run migrations, seed, then start the server.
+    command: >
+      sh -c "python -m scripts.seed || true &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    command: npm run dev
+
+volumes:
+  pgdata:
