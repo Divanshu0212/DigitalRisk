@@ -13,7 +13,10 @@ export default function NavBar() {
   const pathname = usePathname();
   return (
     <nav className="nav">
-      <div className="brand">📊 TxnRank</div>
+      <div className="brand">
+        <div className="brand-mark">TxnRank</div>
+        <div className="brand-copy">Risk operations console</div>
+      </div>
       <div className="links">
         {LINKS.map((l) => {
           const active =

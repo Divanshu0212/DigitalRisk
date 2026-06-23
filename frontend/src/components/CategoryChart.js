@@ -15,14 +15,14 @@ export default function CategoryChart({ breakdown }) {
   const max = Math.max(...entries.map(([, v]) => Number(v.total)), 1);
 
   return (
-    <div>
+    <div className="chart-stack">
       {entries.map(([category, stat]) => {
         const total = Number(stat.total);
         const pct = Math.round((total / max) * 100);
         return (
           <div className="bar-row" key={category}>
-            <span style={{ textTransform: "capitalize" }}>{category}</span>
-            <div className="bar-track">
+            <span className="chart-label">{category}</span>
+            <div className="bar-track" aria-hidden="true">
               <div className="bar-fill" style={{ width: `${pct}%` }} />
             </div>
             <span className="muted" style={{ fontSize: 12, textAlign: "right" }}>

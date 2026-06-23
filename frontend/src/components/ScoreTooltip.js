@@ -12,9 +12,9 @@ export default function ScoreTooltip({ score, breakdown }) {
     <span className="tooltip">
       <strong>{formatNumber(score)}</strong>
       <span className="tooltip-content">
-        <div>Balance (×0.5): {formatNumber(b.balance_score)}</div>
-        <div>Activity (×0.25): {formatNumber(b.activity_score)}</div>
-        <div>Diversity (×0.25): {formatNumber(b.diversity_score)}</div>
+        <div>Balance <span>{formatNumber(b.balance_score)}</span></div>
+        <div>Activity <span>{formatNumber(b.activity_score)}</span></div>
+        <div>Diversity <span>{formatNumber(b.diversity_score)}</span></div>
       </span>
     </span>
   );

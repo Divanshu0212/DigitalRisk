@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import CategoryChart from "@/components/CategoryChart";
+import PageHeader from "@/components/PageHeader";
 import { getSummary, getUsers, ApiError } from "@/api/client";
 import { DEFAULT_USERS } from "@/lib/constants";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -105,9 +106,13 @@ export default function SummaryPage() {
 
   return (
     <div className="grid">
-      <h1>User Summary</h1>
+      <PageHeader
+        eyebrow="Profiles"
+        title="User Summary"
+        description="Search for a user, inspect balance behavior, and review category mix at a glance."
+      />
 
-      <form onSubmit={onSubmit} className="card">
+      <form onSubmit={onSubmit} className="card grid" style={{ gap: 14 }}>
         <label>Search a user and select from the results</label>
         <div className="row" style={{ alignItems: "flex-start" }}>
           <div className="search-picker" style={{ flex: 1 }}>
@@ -159,8 +164,9 @@ export default function SummaryPage() {
       {data && (
         <div className="grid">
           <div className="card">
-            <h2 style={{ textTransform: "capitalize" }}>{data.username}</h2>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Selected profile</div>
+            <h2 style={{ textTransform: "capitalize", marginBottom: 6 }}>{data.username}</h2>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 16, fontFamily: "var(--font-mono)" }}>
               {data.user_id}
             </div>
             <div
@@ -183,6 +189,7 @@ export default function SummaryPage() {
           </div>
 
           <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Spending mix</div>
             <h3>Category Breakdown</h3>
             <CategoryChart breakdown={data.category_breakdown} />
           </div>
@@ -195,17 +202,18 @@ export default function SummaryPage() {
 function Stat({ label, value, highlight }) {
   return (
     <div
+      className="stat-card"
       style={{
-        background: "var(--panel-2)",
-        borderRadius: 8,
-        padding: 12,
-        border: highlight ? "1px solid var(--accent)" : "1px solid var(--border)",
+        background: highlight ? "rgba(46, 95, 82, 0.08)" : "rgba(255, 255, 255, 0.52)",
+        borderRadius: 16,
+        padding: 14,
+        border: highlight ? "1px solid rgba(46, 95, 82, 0.2)" : "1px solid rgba(55, 48, 38, 0.1)",
       }}
     >
-      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6 }}>
         {label}
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>{value}</div>
     </div>
   );
 }

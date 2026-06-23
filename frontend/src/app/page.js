@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import PageHeader from "@/components/PageHeader";
 import RankingTable from "@/components/RankingTable";
 import { getRanking, ApiError } from "@/api/client";
 import { RANKING_REFRESH_MS } from "@/lib/constants";
@@ -50,14 +51,18 @@ export default function DashboardPage() {
 
   return (
     <div className="grid">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <h1>Leaderboard</h1>
-        <div className="muted" style={{ fontSize: 12 }}>
-          {lastUpdated
-            ? `Updated ${lastUpdated.toLocaleTimeString()} · auto-refresh 30s`
-            : "Loading…"}
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Overview"
+        title="Leaderboard"
+        description="A compact ranking view with live scoring, activity balance, and category diversity."
+        actions={
+          <div className="muted" style={{ fontSize: 12 }}>
+            {lastUpdated
+              ? `Updated ${lastUpdated.toLocaleTimeString()} · auto-refresh 30s`
+              : "Loading…"}
+          </div>
+        }
+      />
 
       {error && <div className="banner error">❌ {error}</div>}
 

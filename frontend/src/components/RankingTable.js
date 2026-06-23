@@ -14,7 +14,7 @@ function RankBadge({ rank }) {
  */
 export default function RankingTable({ ranking }) {
   if (!ranking || ranking.length === 0) {
-    return <p className="muted">No ranked users yet.</p>;
+    return <p className="muted">No ranked users yet. Rankings will appear once transactions are submitted.</p>;
   }
   return (
     <div style={{ overflowX: "auto" }}>
@@ -36,8 +36,8 @@ export default function RankingTable({ ranking }) {
                 <RankBadge rank={u.rank} />
               </td>
               <td>
-                <strong>{u.username}</strong>
-                <div className="muted" style={{ fontSize: 11 }}>
+                <strong className="user-name">{u.username}</strong>
+                <div className="muted" style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}>
                   {u.user_id.slice(0, 8)}…
                 </div>
               </td>
